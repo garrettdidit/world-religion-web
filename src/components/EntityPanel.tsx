@@ -3,23 +3,37 @@
 import { Entity, Relationship } from "@/types";
 
 const TYPE_BADGES: Record<string, string> = {
-  religion: "bg-amber-600/30 text-amber-300",
-  figure: "bg-blue-600/30 text-blue-300",
-  text: "bg-green-600/30 text-green-300",
-  event: "bg-red-600/30 text-red-300",
-  mystical_order: "bg-purple-600/30 text-purple-300",
-  secret_society: "bg-purple-600/30 text-purple-300",
-  military_order: "bg-red-700/30 text-red-300",
-  place: "bg-orange-600/30 text-orange-300",
-  motif: "bg-teal-600/30 text-teal-300",
-  sect: "bg-yellow-600/30 text-yellow-300",
+  religion: "bg-amber-500/15 text-amber-300 border-amber-500/20",
+  figure: "bg-blue-500/15 text-blue-300 border-blue-500/20",
+  text: "bg-green-500/15 text-green-300 border-green-500/20",
+  event: "bg-red-500/15 text-red-300 border-red-500/20",
+  mystical_order: "bg-purple-500/15 text-purple-300 border-purple-500/20",
+  secret_society: "bg-purple-500/15 text-purple-300 border-purple-500/20",
+  military_order: "bg-red-700/15 text-red-300 border-red-700/20",
+  place: "bg-orange-500/15 text-orange-300 border-orange-500/20",
+  motif: "bg-teal-500/15 text-teal-300 border-teal-500/20",
+  sect: "bg-yellow-500/15 text-yellow-300 border-yellow-500/20",
 };
 
-const CONFIDENCE_DISPLAY: Record<string, { label: string; color: string }> = {
-  high: { label: "Well-documented", color: "text-green-400" },
-  medium: { label: "Partially documented", color: "text-yellow-400" },
-  low: { label: "Limited evidence", color: "text-orange-400" },
-  none: { label: "No direct evidence", color: "text-red-400" },
+const CONF_COLORS: Record<string, string> = {
+  high: "text-emerald-400",
+  medium: "text-yellow-400",
+  low: "text-orange-400",
+  none: "text-red-400",
+};
+
+const CONF_LABELS: Record<string, string> = {
+  high: "Well-documented",
+  medium: "Partial evidence",
+  low: "Limited evidence",
+  none: "No direct evidence",
+};
+
+const CONSENSUS_COLORS: Record<string, string> = {
+  strong: "text-emerald-400",
+  divided: "text-yellow-400",
+  minority: "text-orange-400",
+  absent: "text-red-400",
 };
 
 interface Props {
@@ -30,119 +44,187 @@ interface Props {
   onNavigate: (id: string) => void;
 }
 
-export default function EntityPanel({ entity, relationships, entities, onClose, onNavigate }: Props) {
-  const getEntityName = (id: string) => entities.find((e) => e.id === id)?.name || id;
-  const conf = CONFIDENCE_DISPLAY[entity.confidence.historical_documentation];
+// Group relationships by type for cleaner display
+function groupRelationships(
+  rels: Relationship[],
+  entityId: string,
+  entities: Entity[]
+) {
+  const groups: Record<
+    string,
+    { label: string; items: { id: string; name: string; summary?: string; outgoing: boolean }[] }
+  > = {};
+
+  for (const r of rels) {
+    const outgoing = r.source === entityId;
+    const otherId = outgoing ? r.target : r.source;
+    const other = entities.find((e) => e.id === otherId);
+    const label = r.type.replace(/_/g, " ");
+
+    if (!groups[label]) groups[label] = { label, items: [] };
+    groups[label].items.push({
+      id: otherId,
+      name: other?.name || otherId,
+      summary: r.summary,
+      outgoing,
+    });
+  }
+
+  return Object.values(groups);
+}
+
+export default function EntityPanel({
+  entity,
+  relationships,
+  entities,
+  onClose,
+  onNavigate,
+}: Props) {
+  const doc = entity.confidence.historical_documentation;
+  const groups = groupRelationships(relationships, entity.id, entities);
 
   return (
-    <div className="w-96 border-l border-gray-800 bg-[#0d0d14] overflow-y-auto shrink-0">
+    <div className="w-[380px] border-l border-gray-800/50 bg-[#0a0a12]/95 backdrop-blur overflow-y-auto shrink-0 flex flex-col">
       {/* Header */}
-      <div className="sticky top-0 bg-[#0d0d14] border-b border-gray-800 p-4 z-10">
-        <div className="flex items-start justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-white">{entity.name}</h2>
+      <div className="sticky top-0 bg-[#0a0a12]/98 backdrop-blur-sm border-b border-gray-800/40 p-4 pb-3 z-10">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-white leading-tight truncate">
+              {entity.name}
+            </h2>
             {entity.aliases && entity.aliases.length > 0 && (
-              <p className="text-xs text-gray-500 mt-0.5">
-                aka {entity.aliases.join(", ")}
+              <p className="text-[11px] text-gray-500 mt-0.5 truncate">
+                {entity.aliases.join(" \u00B7 ")}
               </p>
             )}
           </div>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-white text-xl leading-none"
+            className="text-gray-600 hover:text-white transition-colors p-1 -mt-0.5 shrink-0"
           >
-            &times;
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path
+                d="M1 1L13 13M13 1L1 13"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
           </button>
         </div>
-        <div className="flex gap-2 mt-2 flex-wrap">
-          <span className={`text-xs px-2 py-0.5 rounded-full ${TYPE_BADGES[entity.type] || "bg-gray-700 text-gray-300"}`}>
+        <div className="flex gap-1.5 mt-2 flex-wrap">
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded-full border ${
+              TYPE_BADGES[entity.type] || "bg-gray-700/30 text-gray-300 border-gray-600/20"
+            }`}
+          >
             {entity.type.replace(/_/g, " ")}
           </span>
           {entity.era && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-400">
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-800/40 text-gray-500 border border-gray-700/20">
               {entity.era}
             </span>
           )}
         </div>
       </div>
 
-      <div className="p-4 flex flex-col gap-5">
+      <div className="p-4 flex flex-col gap-4 flex-1">
         {/* Summary */}
-        <div>
-          <p className="text-sm text-gray-300 leading-relaxed">{entity.summary}</p>
-        </div>
+        <p className="text-[13px] text-gray-300 leading-relaxed">{entity.summary}</p>
 
-        {/* Confidence */}
-        <div className="bg-gray-900/50 rounded-lg p-3">
-          <h3 className="text-xs uppercase tracking-wider text-gray-500 mb-2">Evidence</h3>
-          <div className="flex flex-col gap-1 text-xs">
-            <div className="flex justify-between">
-              <span className="text-gray-400">Documentation</span>
-              <span className={conf.color}>{conf.label}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Scholarly consensus</span>
-              <span className="text-gray-300">{entity.confidence.scholarly_consensus}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Primary sources</span>
-              <span className={entity.confidence.primary_source_available ? "text-green-400" : "text-red-400"}>
-                {entity.confidence.primary_source_available ? "Available" : "Unavailable"}
-              </span>
-            </div>
+        {/* Evidence card */}
+        <div className="bg-gray-900/40 rounded-lg p-3 border border-gray-800/30">
+          <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-2">
+            Evidence Quality
+          </h3>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+            <span className="text-gray-500">Documentation</span>
+            <span className={`text-right ${CONF_COLORS[doc]}`}>{CONF_LABELS[doc]}</span>
+
+            <span className="text-gray-500">Consensus</span>
+            <span
+              className={`text-right capitalize ${
+                CONSENSUS_COLORS[entity.confidence.scholarly_consensus]
+              }`}
+            >
+              {entity.confidence.scholarly_consensus}
+            </span>
+
+            <span className="text-gray-500">Primary sources</span>
+            <span
+              className={`text-right ${
+                entity.confidence.primary_source_available
+                  ? "text-emerald-400"
+                  : "text-red-400"
+              }`}
+            >
+              {entity.confidence.primary_source_available ? "Available" : "Unavailable"}
+            </span>
           </div>
         </div>
 
         {/* Interpretations */}
-        {entity.interpretations && Object.keys(entity.interpretations).length > 0 && (
-          <div>
-            <h3 className="text-xs uppercase tracking-wider text-gray-500 mb-2">
-              Interpretations by Tradition
-            </h3>
-            <div className="flex flex-col gap-2">
-              {Object.entries(entity.interpretations).map(([tradition, text]) => (
-                <div key={tradition} className="bg-gray-900/50 rounded-lg p-3">
-                  <p className="text-xs font-medium text-amber-400 mb-1 capitalize">
-                    {tradition.replace(/_/g, " ")}
-                  </p>
-                  <p className="text-xs text-gray-300 leading-relaxed">{text}</p>
-                </div>
-              ))}
+        {entity.interpretations &&
+          Object.keys(entity.interpretations).length > 0 && (
+            <div>
+              <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-2">
+                By Tradition
+              </h3>
+              <div className="flex flex-col gap-1.5">
+                {Object.entries(entity.interpretations).map(([tradition, text]) => (
+                  <details
+                    key={tradition}
+                    className="group bg-gray-900/30 rounded-lg border border-gray-800/20 overflow-hidden"
+                  >
+                    <summary className="px-3 py-2 cursor-pointer text-[11px] font-medium text-amber-400/80 hover:text-amber-300 transition-colors flex items-center justify-between capitalize select-none">
+                      {tradition.replace(/_/g, " ")}
+                      <svg
+                        className="w-3 h-3 text-gray-600 group-open:rotate-180 transition-transform"
+                        fill="none"
+                        viewBox="0 0 12 12"
+                      >
+                        <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.2" />
+                      </svg>
+                    </summary>
+                    <p className="px-3 pb-2.5 text-[11px] text-gray-400 leading-relaxed">
+                      {text}
+                    </p>
+                  </details>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Relationships */}
-        {relationships.length > 0 && (
+        {/* Connections (grouped) */}
+        {groups.length > 0 && (
           <div>
-            <h3 className="text-xs uppercase tracking-wider text-gray-500 mb-2">
+            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-2">
               Connections ({relationships.length})
             </h3>
-            <div className="flex flex-col gap-1">
-              {relationships.map((r) => {
-                const isSource = r.source === entity.id;
-                const otherId = isSource ? r.target : r.source;
-                const otherName = getEntityName(otherId);
-                const label = r.type.replace(/_/g, " ");
-
-                return (
-                  <button
-                    key={r.id}
-                    onClick={() => onNavigate(otherId)}
-                    className="text-left text-xs p-2 rounded hover:bg-gray-800 transition-colors group"
-                  >
-                    <span className="text-gray-500">
-                      {isSource ? `${label} →` : `← ${label}`}
-                    </span>{" "}
-                    <span className="text-blue-400 group-hover:text-blue-300">
-                      {otherName}
-                    </span>
-                    {r.summary && (
-                      <p className="text-gray-600 mt-0.5">{r.summary}</p>
-                    )}
-                  </button>
-                );
-              })}
+            <div className="flex flex-col gap-2">
+              {groups.map((group) => (
+                <div key={group.label}>
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wide mb-1 px-1">
+                    {group.label}
+                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    {group.items.map((item, i) => (
+                      <button
+                        key={`${item.id}-${i}`}
+                        onClick={() => onNavigate(item.id)}
+                        className="text-left text-[11px] px-2.5 py-1.5 rounded-md hover:bg-gray-800/50 transition-colors group flex items-center gap-1.5"
+                      >
+                        <span className="text-gray-600 text-[10px]">
+                          {item.outgoing ? "\u2192" : "\u2190"}
+                        </span>
+                        <span className="text-blue-400 group-hover:text-blue-300 transition-colors">
+                          {item.name}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -150,12 +232,14 @@ export default function EntityPanel({ entity, relationships, entities, onClose, 
         {/* Tags */}
         {entity.tags.length > 0 && (
           <div>
-            <h3 className="text-xs uppercase tracking-wider text-gray-500 mb-2">Tags</h3>
+            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-2">
+              Tags
+            </h3>
             <div className="flex flex-wrap gap-1">
               {entity.tags.map((tag) => (
                 <span
                   key={tag}
-                  className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400"
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-gray-800/40 text-gray-500 border border-gray-700/20"
                 >
                   {tag.replace(/_/g, " ")}
                 </span>
@@ -167,23 +251,28 @@ export default function EntityPanel({ entity, relationships, entities, onClose, 
         {/* Sources */}
         {entity.sources && entity.sources.length > 0 && (
           <div>
-            <h3 className="text-xs uppercase tracking-wider text-gray-500 mb-2">Sources</h3>
-            <ul className="text-xs text-gray-400 list-disc list-inside flex flex-col gap-0.5">
+            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-2">
+              Sources
+            </h3>
+            <ul className="text-[11px] text-gray-500 flex flex-col gap-0.5">
               {entity.sources.map((s, i) => (
-                <li key={i}>{s}</li>
+                <li key={i} className="flex items-start gap-1.5">
+                  <span className="text-gray-700 mt-0.5">&bull;</span>
+                  <span>{s}</span>
+                </li>
               ))}
             </ul>
           </div>
         )}
 
         {/* Lenses */}
-        <div>
-          <h3 className="text-xs uppercase tracking-wider text-gray-500 mb-2">Visible in Lenses</h3>
-          <div className="flex gap-1">
+        <div className="mt-auto pt-2">
+          <div className="flex gap-1 items-center">
+            <span className="text-[10px] text-gray-700 mr-1">Visible in:</span>
             {entity.lens.map((l) => (
               <span
                 key={l}
-                className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 capitalize"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800/30 text-gray-600 capitalize"
               >
                 {l}
               </span>

@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #060609;
+  --foreground: #e0e0e0;
 }
 
 @theme inline {
@@ -12,15 +12,78 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Tooltip */
+.cy-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(10, 10, 18, 0.95);
+  border: 1px solid rgba(230, 168, 23, 0.3);
+  backdrop-filter: blur(8px);
+  border-radius: 8px;
+  padding: 10px 14px;
+  max-width: 280px;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+.cy-tooltip.visible {
+  opacity: 1;
+}
+.cy-tooltip h4 {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+}
+.cy-tooltip .tt-type {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.cy-tooltip p {
+  color: #aaa;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Panel slide animation */
+.panel-enter {
+  animation: slideIn 0.25s ease-out forwards;
+}
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
