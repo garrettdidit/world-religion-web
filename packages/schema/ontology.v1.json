@@ -1,0 +1,228 @@
+{
+  "version": "1.0.0",
+  "description": "Versioned ontology specification for World Religion Web. Schema changes require a version bump and PR approval.",
+  "governance": {
+    "change_control": "Schema changes must be proposed as structured JSON and approved via pull request.",
+    "agents_can_propose_but_not_commit": true
+  },
+  "entity_types": [
+    { "name": "religion", "description": "A broad religious tradition or faith." },
+    { "name": "denomination", "description": "A formal branch within a religion." },
+    { "name": "sect", "description": "A smaller subgroup or sectarian formation." },
+    { "name": "mystical_order", "description": "An initiatory or contemplative order." },
+    { "name": "person", "description": "A historical, legendary, or doctrinally important person." },
+    { "name": "text", "description": "A textual work, canon, scripture, or treatise." },
+    { "name": "deity", "description": "A divine being or sacred figure." },
+    { "name": "concept", "description": "A doctrinal, philosophical, or theological concept." },
+    { "name": "ritual", "description": "A ritual act or ceremony." },
+    { "name": "site", "description": "A sacred, historical, or contested site." },
+    { "name": "movement", "description": "A social, theological, or reform movement." },
+    { "name": "event", "description": "A historical or legendary event." },
+    { "name": "practice", "description": "A recurring devotional, legal, or spiritual practice." },
+    { "name": "prophecy_text", "description": "A text framed around prophetic claims or predictions." },
+    { "name": "accusation", "description": "A polemical accusation or charge made by one group about another." },
+    { "name": "transmission_event", "description": "An event where teachings, texts, or rites are transmitted." },
+    { "name": "disputed_attribution", "description": "A contested authorship or attribution record." },
+    { "name": "polity", "description": "A political structure with religious significance." },
+    { "name": "legal_tradition", "description": "A school or stream of legal interpretation." },
+    { "name": "lineage", "description": "A succession chain or initiatory lineage." },
+    { "name": "artifact", "description": "A physical object with religious relevance." },
+    { "name": "institution", "description": "An organized body such as a monastery, church, or academy." },
+    { "name": "council", "description": "A formal religious council or synod." },
+    { "name": "cosmological_concept", "description": "A concept about the structure of the cosmos." },
+    { "name": "initiatory_grade", "description": "A rank or grade within an initiatory system." }
+  ],
+  "relationship_types": [
+    { "name": "founded", "description": "Indicates that a person or movement founded a target entity." },
+    { "name": "founded_by", "description": "Reverse form of founded." },
+    { "name": "influenced", "description": "Indicates substantive doctrinal or cultural influence." },
+    { "name": "influenced_by", "description": "Reverse form of influenced." },
+    { "name": "split_from", "description": "Shows historical divergence from a parent body." },
+    { "name": "located_in", "description": "Places an entity in a geography or site." },
+    { "name": "associated_with", "description": "A non-exclusive associative relationship." },
+    { "name": "practices", "description": "Connects an entity to a ritual or practice." },
+    { "name": "mentions", "description": "Connects a text to a referenced entity." },
+    { "name": "worships", "description": "Connects a community or text to a deity or sacred figure." },
+    { "name": "opposes", "description": "Captures adversarial or polemical opposition." },
+    { "name": "succeeds", "description": "Temporal succession relation." },
+    { "name": "precedes", "description": "Temporal precedence relation." },
+    { "name": "has_text", "description": "Associates an entity with a text." },
+    { "name": "has_site", "description": "Associates an entity with a site." },
+    { "name": "has_ritual", "description": "Associates an entity with a ritual." },
+    { "name": "has_practice", "description": "Associates an entity with a practice." },
+    { "name": "has_concept", "description": "Associates an entity with a concept." },
+    { "name": "has_lineage", "description": "Associates an entity with a lineage." },
+    { "name": "preserves", "description": "Indicates preservation or custodianship." },
+    { "name": "transmits", "description": "Indicates transmission across entities or periods." },
+    { "name": "mistranslated_into", "description": "Marks a disputed or consequential mistranslation." },
+    { "name": "polemically_inverted", "description": "Indicates a polemical inversion or reversal." },
+    { "name": "liturgically_absorbed", "description": "Indicates absorption into liturgical use." },
+    { "name": "suppressed_by", "description": "Indicates suppression by another body." },
+    { "name": "claims_fulfillment_of", "description": "Captures explicit claims of fulfilling another tradition or text." },
+    { "name": "claims_corruption_of", "description": "Captures claims that another tradition corrupted an earlier one." },
+    { "name": "mystically_interprets", "description": "Indicates mystical or esoteric interpretation of a target." },
+    { "name": "splits_into", "description": "Indicates downstream branching into multiple traditions or bodies." },
+    { "name": "merges_into", "description": "Indicates consolidation into another body." },
+    { "name": "contests_site_with", "description": "Indicates contestation over a sacred or historical site." },
+    { "name": "initiated_by", "description": "Indicates initiation by a person, lineage, or order." }
+  ],
+  "relationship_constraints": {
+    "founded": {
+      "allowed_source_types": ["person", "movement", "institution", "lineage"],
+      "allowed_target_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "legal_tradition", "lineage", "council", "polity"],
+      "temporal_required": true,
+      "notes": "Use when the source actively establishes the target."
+    },
+    "founded_by": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "legal_tradition", "lineage", "council", "polity"],
+      "allowed_target_types": ["person", "movement", "institution", "lineage"],
+      "temporal_required": true,
+      "notes": "Reverse form of founded."
+    },
+    "influenced": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "person", "text", "concept", "movement", "practice", "legal_tradition", "institution", "council", "cosmological_concept"],
+      "allowed_target_types": ["religion", "denomination", "sect", "mystical_order", "person", "text", "concept", "movement", "practice", "legal_tradition", "institution", "council", "cosmological_concept"]
+    },
+    "influenced_by": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "person", "text", "concept", "movement", "practice", "legal_tradition", "institution", "council", "cosmological_concept"],
+      "allowed_target_types": ["religion", "denomination", "sect", "mystical_order", "person", "text", "concept", "movement", "practice", "legal_tradition", "institution", "council", "cosmological_concept"]
+    },
+    "split_from": {
+      "allowed_source_types": ["denomination", "sect", "mystical_order", "movement", "legal_tradition", "lineage", "institution"],
+      "allowed_target_types": ["religion", "denomination", "sect", "mystical_order", "movement", "legal_tradition", "lineage", "institution"],
+      "temporal_required": true
+    },
+    "located_in": {
+      "allowed_source_types": ["institution", "site", "artifact", "ritual", "event", "transmission_event", "council", "movement", "polity"],
+      "allowed_target_types": ["site", "polity"]
+    },
+    "associated_with": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "person", "text", "deity", "concept", "ritual", "site", "movement", "event", "practice", "prophecy_text", "accusation", "transmission_event", "disputed_attribution", "polity", "legal_tradition", "lineage", "artifact", "institution", "council", "cosmological_concept", "initiatory_grade"],
+      "allowed_target_types": ["religion", "denomination", "sect", "mystical_order", "person", "text", "deity", "concept", "ritual", "site", "movement", "event", "practice", "prophecy_text", "accusation", "transmission_event", "disputed_attribution", "polity", "legal_tradition", "lineage", "artifact", "institution", "council", "cosmological_concept", "initiatory_grade"]
+    },
+    "practices": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "lineage", "legal_tradition"],
+      "allowed_target_types": ["ritual", "practice", "initiatory_grade"]
+    },
+    "mentions": {
+      "allowed_source_types": ["text", "prophecy_text"],
+      "allowed_target_types": ["religion", "denomination", "sect", "mystical_order", "person", "text", "deity", "concept", "ritual", "site", "movement", "event", "practice", "prophecy_text", "accusation", "transmission_event", "disputed_attribution", "polity", "legal_tradition", "lineage", "artifact", "institution", "council", "cosmological_concept", "initiatory_grade"]
+    },
+    "worships": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "text", "prophecy_text", "institution"],
+      "allowed_target_types": ["deity", "person", "concept", "cosmological_concept"]
+    },
+    "opposes": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "legal_tradition", "text", "accusation", "polity"],
+      "allowed_target_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "legal_tradition", "text", "accusation", "polity", "site", "practice", "concept"]
+    },
+    "succeeds": {
+      "allowed_source_types": ["person", "institution", "movement", "polity", "council", "lineage", "legal_tradition"],
+      "allowed_target_types": ["person", "institution", "movement", "polity", "council", "lineage", "legal_tradition"],
+      "temporal_required": true
+    },
+    "precedes": {
+      "allowed_source_types": ["person", "institution", "movement", "polity", "council", "lineage", "legal_tradition"],
+      "allowed_target_types": ["person", "institution", "movement", "polity", "council", "lineage", "legal_tradition"],
+      "temporal_required": true
+    },
+    "has_text": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "lineage", "council", "legal_tradition"],
+      "allowed_target_types": ["text", "prophecy_text", "disputed_attribution"]
+    },
+    "has_site": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "lineage", "polity"],
+      "allowed_target_types": ["site"]
+    },
+    "has_ritual": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "lineage"],
+      "allowed_target_types": ["ritual"]
+    },
+    "has_practice": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "lineage", "legal_tradition"],
+      "allowed_target_types": ["practice", "initiatory_grade"]
+    },
+    "has_concept": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "text", "legal_tradition", "council"],
+      "allowed_target_types": ["concept", "cosmological_concept"]
+    },
+    "has_lineage": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution"],
+      "allowed_target_types": ["lineage"]
+    },
+    "preserves": {
+      "allowed_source_types": ["institution", "lineage", "religion", "denomination", "sect", "mystical_order", "artifact", "site"],
+      "allowed_target_types": ["text", "artifact", "practice", "ritual", "site", "lineage", "concept"]
+    },
+    "transmits": {
+      "allowed_source_types": ["person", "institution", "lineage", "text", "transmission_event", "movement", "mystical_order"],
+      "allowed_target_types": ["text", "practice", "ritual", "concept", "lineage", "initiatory_grade", "cosmological_concept"],
+      "temporal_required": true
+    },
+    "mistranslated_into": {
+      "allowed_source_types": ["text", "prophecy_text", "concept"],
+      "allowed_target_types": ["text", "concept", "prophecy_text"]
+    },
+    "polemically_inverted": {
+      "allowed_source_types": ["accusation", "text", "concept", "practice"],
+      "allowed_target_types": ["concept", "practice", "text", "accusation"]
+    },
+    "liturgically_absorbed": {
+      "allowed_source_types": ["practice", "ritual", "text", "concept"],
+      "allowed_target_types": ["ritual", "practice", "text", "religion", "denomination", "sect", "mystical_order"]
+    },
+    "suppressed_by": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "practice", "text", "site"],
+      "allowed_target_types": ["polity", "institution", "religion", "denomination", "sect", "movement"]
+    },
+    "claims_fulfillment_of": {
+      "allowed_source_types": ["religion", "denomination", "sect", "movement", "text", "prophecy_text"],
+      "allowed_target_types": ["religion", "text", "prophecy_text", "concept"]
+    },
+    "claims_corruption_of": {
+      "allowed_source_types": ["religion", "denomination", "sect", "movement", "text", "accusation"],
+      "allowed_target_types": ["religion", "denomination", "sect", "movement", "text", "concept"]
+    },
+    "mystically_interprets": {
+      "allowed_source_types": ["mystical_order", "person", "text", "lineage", "concept"],
+      "allowed_target_types": ["text", "concept", "cosmological_concept", "ritual", "practice", "deity"]
+    },
+    "splits_into": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "legal_tradition", "lineage"],
+      "allowed_target_types": ["denomination", "sect", "mystical_order", "movement", "legal_tradition", "lineage"],
+      "temporal_required": true
+    },
+    "merges_into": {
+      "allowed_source_types": ["denomination", "sect", "mystical_order", "movement", "institution", "legal_tradition", "lineage"],
+      "allowed_target_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "legal_tradition", "lineage"],
+      "temporal_required": true
+    },
+    "contests_site_with": {
+      "allowed_source_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "polity"],
+      "allowed_target_types": ["religion", "denomination", "sect", "mystical_order", "movement", "institution", "polity", "site"],
+      "notes": "Prefer separate site records plus claims when possible."
+    },
+    "initiated_by": {
+      "allowed_source_types": ["person", "lineage", "mystical_order", "initiatory_grade", "practice"],
+      "allowed_target_types": ["person", "lineage", "mystical_order", "institution", "initiatory_grade"]
+    }
+  },
+  "field_semantics": {
+    "entity.subtype": "Narrower specialization within a top-level entity type.",
+    "entity.visibility_level": "Controls whether a record is public, sensitive, or restricted.",
+    "entity.status": "Lifecycle state for content ingestion and governance.",
+    "entity.review_status": "Human review state.",
+    "relationship.temporal_scope": "Machine-readable temporal metadata used by timeline views.",
+    "claim.dispute_status": "Tracks whether a claim is accepted, contested, or debunked.",
+    "source.primary_or_secondary": "Distinguishes primary, secondary, and tertiary materials.",
+    "relationship_constraints": "Defines valid source and target type combinations for each edge type."
+  },
+  "temporal_rules": [
+    "Use exact years when evidence supports them.",
+    "Use decade precision when only approximate modern dating is available.",
+    "Use century precision for broad premodern ranges.",
+    "Use era precision for named eras that are meaningful but not numerically exact.",
+    "Use mythic precision for sacred or cosmological chronology not intended as historical dating.",
+    "Timeline UIs should sort exact, decade, and century values numerically, place era values in named era bands, and separate mythic records into a non-linear lane."
+  ]
+}

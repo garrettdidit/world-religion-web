@@ -13,6 +13,23 @@ const TYPE_BADGES: Record<string, string> = {
   place: "bg-orange-500/15 text-orange-300 border-orange-500/20",
   motif: "bg-teal-500/15 text-teal-300 border-teal-500/20",
   sect: "bg-yellow-500/15 text-yellow-300 border-yellow-500/20",
+  deity: "bg-yellow-400/15 text-yellow-200 border-yellow-400/20",
+  concept: "bg-teal-500/15 text-teal-300 border-teal-500/20",
+  ritual: "bg-orange-500/15 text-orange-300 border-orange-500/20",
+  movement: "bg-green-500/15 text-green-300 border-green-500/20",
+  practice: "bg-blue-500/15 text-blue-300 border-blue-500/20",
+  prophecy_text: "bg-purple-500/15 text-purple-300 border-purple-500/20",
+  accusation: "bg-red-500/15 text-red-300 border-red-500/20",
+  transmission_event: "bg-gray-500/15 text-gray-300 border-gray-500/20",
+  disputed_attribution: "bg-gray-500/15 text-gray-300 border-gray-500/20",
+  polity: "bg-amber-600/15 text-amber-300 border-amber-600/20",
+  legal_tradition: "bg-slate-500/15 text-slate-300 border-slate-500/20",
+  lineage: "bg-purple-500/15 text-purple-300 border-purple-500/20",
+  artifact: "bg-amber-700/15 text-amber-200 border-amber-700/20",
+  institution: "bg-slate-600/15 text-slate-300 border-slate-600/20",
+  council: "bg-red-500/15 text-red-300 border-red-500/20",
+  cosmological_concept: "bg-slate-700/15 text-slate-300 border-slate-700/20",
+  initiatory_grade: "bg-purple-700/15 text-purple-300 border-purple-700/20",
 };
 
 const CONF_COLORS: Record<string, string> = {
