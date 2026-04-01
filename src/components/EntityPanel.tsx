@@ -59,6 +59,7 @@ interface Props {
   entities: Entity[];
   onClose: () => void;
   onNavigate: (id: string) => void;
+  mobile?: boolean;
 }
 
 // Group relationships by type for cleaner display
@@ -96,17 +97,18 @@ export default function EntityPanel({
   entities,
   onClose,
   onNavigate,
+  mobile = false,
 }: Props) {
   const doc = entity.confidence.historical_documentation;
   const groups = groupRelationships(relationships, entity.id, entities);
 
   return (
-    <div className="w-[380px] border-l border-gray-800/50 bg-[#0a0a12]/95 backdrop-blur overflow-y-auto shrink-0 flex flex-col">
+    <div className={mobile ? "flex flex-col flex-1 overflow-y-auto bg-[#0a0a12]" : "w-[380px] border-l border-gray-800/50 bg-[#0a0a12]/95 backdrop-blur overflow-y-auto shrink-0 flex flex-col"}>
       {/* Header */}
-      <div className="sticky top-0 bg-[#0a0a12]/98 backdrop-blur-sm border-b border-gray-800/40 p-4 pb-3 z-10">
+      <div className={`sticky top-0 bg-[#0a0a12]/98 backdrop-blur-sm border-b border-gray-800/40 z-10 ${mobile ? "p-3 pb-2" : "p-4 pb-3"}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-lg font-bold text-white leading-tight truncate">
+            <h2 className={`font-bold text-white leading-tight truncate ${mobile ? "text-base" : "text-lg"}`}>
               {entity.name}
             </h2>
             {entity.aliases && entity.aliases.length > 0 && (
@@ -260,6 +262,47 @@ export default function EntityPanel({
                 >
                   {tag.replace(/_/g, " ")}
                 </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Links */}
+        {entity.links && entity.links.length > 0 && (
+          <div>
+            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-2">
+              Read & Explore
+            </h3>
+            <div className="flex flex-col gap-1">
+              {entity.links.map((link, i) => (
+                <a
+                  key={i}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] px-2.5 py-1.5 rounded-md bg-gray-900/40 border border-gray-800/30 hover:border-amber-500/30 hover:bg-gray-800/40 transition-colors flex items-center gap-2 group"
+                >
+                  <svg className="w-3 h-3 text-gray-600 group-hover:text-amber-400 shrink-0 transition-colors" fill="none" viewBox="0 0 12 12">
+                    <path d="M5 1H2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7M7 1h4v4M11 1 5.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <span className="text-blue-400 group-hover:text-blue-300 transition-colors">{link.label}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Citations */}
+        {entity.citations && entity.citations.length > 0 && (
+          <div>
+            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-2">
+              Academic Citations
+            </h3>
+            <div className="flex flex-col gap-1.5">
+              {entity.citations.map((c, i) => (
+                <p key={i} className="text-[10px] text-gray-500 leading-relaxed pl-3 border-l-2 border-gray-800/40 italic">
+                  {c}
+                </p>
               ))}
             </div>
           </div>

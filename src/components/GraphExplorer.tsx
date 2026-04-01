@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import cytoscape, { Core, ElementDefinition, EventObject, LayoutOptions, NodeSingular } from "cytoscape";
 import { entities, relationships } from "@/data/seed";
 import { Entity, Lens } from "@/types";
@@ -9,6 +9,7 @@ import {
   buildLayoutStorageKey,
   FocusDepth,
   getInitialGraphControls,
+  PathScope,
   parseGraphUrlState,
   persistGraphUiState,
   readLayoutSnapshot,
@@ -96,7 +97,6 @@ const EDGE_COLORS: Record<string, string> = {
   present_in: "#16a085",
   built: "#d35400",
   associated_with: "#95a5a6",
-  // v0.2 ontology edge types
   founded: "#e6a817",
   founded_by: "#e6a817",
   influenced: "#95a5a6",
@@ -153,6 +153,15 @@ type LayoutName = (typeof LAYOUT_OPTIONS)[number]["value"];
 type PathDraft = {
   startId: string | null;
   endId: string | null;
+};
+
+type PathPickMode = "start" | "end" | null;
+
+type PathResult = {
+  found: boolean;
+  nodeIds: string[];
+  edgeIds: string[];
+  distance: number;
 };
 
 function getEntitySummaryShort(id: string): string {
@@ -289,34 +298,190 @@ function restoreSnapshot(cy: Core, storageKey: string, fitAfterRestore = false) 
   return true;
 }
 
-function applyPathHighlight(cy: Core, pathState: PathDraft) {
-  cy.elements().removeClass("path-node path-edge path-dim");
-
+function computePathResult(
+  pathState: PathDraft,
+  allowedEntityIds: Set<string>,
+  allowedRelationshipIds: Set<string>
+): PathResult | null {
   if (!pathState.startId || !pathState.endId || pathState.startId === pathState.endId) {
-    return;
+    return null;
+  }
+
+  if (!allowedEntityIds.has(pathState.startId) || !allowedEntityIds.has(pathState.endId)) {
+    return null;
+  }
+
+  const queue = [pathState.startId];
+  const visited = new Set<string>([pathState.startId]);
+  const previous = new Map<string, { nodeId: string; edgeId: string }>();
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current) break;
+    if (current === pathState.endId) break;
+
+    relationships.forEach((relationship) => {
+      if (!allowedRelationshipIds.has(relationship.id)) return;
+
+      let neighborId: string | null = null;
+      if (relationship.source === current && allowedEntityIds.has(relationship.target)) {
+        neighborId = relationship.target;
+      } else if (relationship.target === current && allowedEntityIds.has(relationship.source)) {
+        neighborId = relationship.source;
+      }
+
+      if (!neighborId || visited.has(neighborId)) return;
+      visited.add(neighborId);
+      previous.set(neighborId, { nodeId: current, edgeId: relationship.id });
+      queue.push(neighborId);
+    });
+  }
+
+  if (!visited.has(pathState.endId)) {
+    return {
+      found: false,
+      nodeIds: [],
+      edgeIds: [],
+      distance: Number.POSITIVE_INFINITY,
+    };
+  }
+
+  const nodeIds: string[] = [];
+  const edgeIds: string[] = [];
+  let cursor: string | null = pathState.endId;
+
+  while (cursor) {
+    nodeIds.unshift(cursor);
+    const step = previous.get(cursor);
+    if (!step) break;
+    edgeIds.unshift(step.edgeId);
+    cursor = step.nodeId;
+  }
+
+  return {
+    found: true,
+    nodeIds,
+    edgeIds,
+    distance: Math.max(nodeIds.length - 1, 0),
+  };
+}
+
+function applyPathHighlight(cy: Core, pathState: PathDraft, pathResult: PathResult | null): PathResult | null {
+  cy.elements().removeClass(
+    "path-node path-edge path-dim path-start path-end path-context path-ghost-edge path-active-label"
+  );
+
+  if (!pathResult || !pathState.startId || !pathState.endId || !pathResult.found) {
+    return pathResult;
   }
 
   const start = cy.getElementById(pathState.startId);
   const end = cy.getElementById(pathState.endId);
-  if (!start.nonempty() || !end.nonempty()) return;
-  if (start.style("display") === "none" || end.style("display") === "none") return;
-
-  const result = cy.elements(":visible").dijkstra({
-    root: start,
-    directed: false,
-    weight: () => 1,
-  });
-
-  const path = result.pathTo(end);
-  if (!path.length) return;
+  const pathNodes = cy.nodes().filter((node) => pathResult.nodeIds.includes(node.id()));
+  const pathEdges = cy.edges().filter((edge) => pathResult.edgeIds.includes(edge.id()));
+  const contextEdges = pathNodes.connectedEdges(":visible").difference(pathEdges);
 
   cy.elements(":visible").addClass("path-dim");
-  path.removeClass("path-dim");
-  path.nodes().addClass("path-node");
-  path.edges().addClass("path-edge show-label");
+  pathNodes.removeClass("path-dim").addClass("path-node");
+  pathEdges.removeClass("path-dim").addClass("path-edge path-active-label");
+  contextEdges.removeClass("path-dim").addClass("path-ghost-edge");
+  start.removeClass("path-dim").addClass("path-start");
+  end.removeClass("path-dim").addClass("path-end");
+
+  return pathResult;
 }
 
+function getPathStatus(
+  pathDraft: PathDraft,
+  pathResult: PathResult | null,
+  entityMap: Map<string, Entity>,
+  visibleEntityIds: Set<string>,
+  pathScope: PathScope = "visible"
+) {
+  const start = pathDraft.startId ? entityMap.get(pathDraft.startId) ?? null : null;
+  const end = pathDraft.endId ? entityMap.get(pathDraft.endId) ?? null : null;
+
+  const scopeLabel = pathScope === "filtered" ? "filtered" : "visible";
+
+  if (!pathDraft.startId) {
+    return {
+      tone: "neutral" as const,
+      title: "Choose two nodes to trace a path",
+      detail: `Pick a start node, then pick an end node. The graph highlights the shortest route inside the ${scopeLabel} graph.`,
+    };
+  }
+
+  if (!visibleEntityIds.has(pathDraft.startId)) {
+    return {
+      tone: "warning" as const,
+      title: `${start?.name ?? "Start node"} is outside the ${scopeLabel} graph`,
+      detail: "Clear filters or focus mode to bring the start node back into scope.",
+    };
+  }
+
+  if (!pathDraft.endId) {
+    return {
+      tone: "neutral" as const,
+      title: `Starting from ${start?.name ?? "your selected node"}`,
+      detail: `Now choose an end node from the controls or by clicking another node in the ${scopeLabel} graph.`,
+    };
+  }
+
+  if (!visibleEntityIds.has(pathDraft.endId)) {
+    return {
+      tone: "warning" as const,
+      title: `${end?.name ?? "End node"} is outside the ${scopeLabel} graph`,
+      detail: `The end node is outside the current ${scopeLabel} graph. Relax filters or return to the full graph.`,
+    };
+  }
+
+  if (pathDraft.startId === pathDraft.endId) {
+    return {
+      tone: "warning" as const,
+      title: "Choose two different nodes",
+      detail: "The start and end points are the same node, so there is no path to trace yet.",
+    };
+  }
+
+  if (!pathResult) {
+    return {
+      tone: "neutral" as const,
+      title: `Tracing shortest ${scopeLabel} path…`,
+      detail: "The path highlighter updates after the graph renders the current view.",
+    };
+  }
+
+  if (!pathResult.found) {
+    return {
+      tone: "warning" as const,
+      title: `No ${scopeLabel} path from ${start?.name ?? "start"} to ${end?.name ?? "end"}`,
+      detail: "These nodes may connect outside the current filter, lens, or focus window.",
+    };
+  }
+
+  return {
+    tone: "success" as const,
+    title: `${start?.name ?? "Start"} → ${end?.name ?? "End"}`,
+    detail: `${Math.max(pathResult.nodeIds.length - 1, 0)} hops across ${pathResult.edgeIds.length} relationships are highlighted in gold.`,
+  };
+}
+
+const MOBILE_QUERY = "(max-width: 767px)";
+function subscribeMediaQuery(cb: () => void) {
+  const mql = window.matchMedia(MOBILE_QUERY);
+  mql.addEventListener("change", cb);
+  return () => mql.removeEventListener("change", cb);
+}
+function getIsMobile() {
+  return typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches;
+}
+const SERVER_FALSE = () => false;
+
 export default function GraphExplorer() {
+  const isMobile = useSyncExternalStore(subscribeMediaQuery, getIsMobile, SERVER_FALSE);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sheetExpanded, setSheetExpanded] = useState(false);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
@@ -333,7 +498,15 @@ export default function GraphExplorer() {
   const [searchQuery, setSearchQuery] = useState(initialControls.search);
   const [layoutName, setLayoutName] = useState<LayoutName>("concentric");
   const [focusDepth, setFocusDepth] = useState<FocusDepth | null>(initialUrlState.depth);
-  const [pathDraft, setPathDraft] = useState<PathDraft>({ startId: null, endId: null });
+  const [pathDraft, setPathDraft] = useState<PathDraft>({
+    startId: initialUrlState.pathStartId,
+    endId: initialUrlState.pathEndId,
+  });
+  const [pathPickMode, setPathPickMode] = useState<PathPickMode>(initialUrlState.pathStartId && !initialUrlState.pathEndId ? "end" : null);
+  const [pathScope, setPathScope] = useState<PathScope>(initialUrlState.pathScope);
+  const [pathResult, setPathResult] = useState<PathResult | null>(null);
+  const isRestoringFromPopstate = useRef(false);
+  const prevUrlStateKeyRef = useRef<string>("");
 
   const entityMap = useMemo(() => new Map(entities.map((entity) => [entity.id, entity])), []);
   const adjacencyMap = useMemo(() => {
@@ -433,7 +606,58 @@ export default function GraphExplorer() {
     );
   }, [activeLens, visibleEntityIds]);
 
-  const visibleNodeIdsForStorage = useMemo(() => Array.from(visibleEntityIds).sort(), [visibleEntityIds]);
+  const pathEligibleEntityIds = useMemo(
+    () => (pathScope === "filtered" ? baseVisibleEntityIds : visibleEntityIds),
+    [baseVisibleEntityIds, pathScope, visibleEntityIds]
+  );
+
+  const pathSelectableEntities = useMemo(
+    () => entities.filter((entity) => pathEligibleEntityIds.has(entity.id)).sort((a, b) => a.name.localeCompare(b.name)),
+    [pathEligibleEntityIds]
+  );
+
+  const scopedPathDraft = useMemo<PathDraft>(() => {
+    if (!pathDraft.startId || !pathEligibleEntityIds.has(pathDraft.startId)) {
+      return { startId: null, endId: null };
+    }
+
+    if (pathDraft.endId && !pathEligibleEntityIds.has(pathDraft.endId)) {
+      return { startId: pathDraft.startId, endId: null };
+    }
+
+    return pathDraft;
+  }, [pathDraft, pathEligibleEntityIds]);
+
+  const pathRelationshipIds = useMemo(() => {
+    return new Set(
+      relationships
+        .filter((relationship) => {
+          if (!pathEligibleEntityIds.has(relationship.source) || !pathEligibleEntityIds.has(relationship.target)) {
+            return false;
+          }
+          if (activeLens !== "all" && !relationship.lens.includes(activeLens)) return false;
+          return true;
+        })
+        .map((relationship) => relationship.id)
+    );
+  }, [activeLens, pathEligibleEntityIds]);
+
+  const computedPathResult = useMemo(
+    () => computePathResult(scopedPathDraft, pathEligibleEntityIds, pathRelationshipIds),
+    [pathEligibleEntityIds, pathRelationshipIds, scopedPathDraft]
+  );
+
+  const pathDisplayEntityIds = useMemo(() => {
+    if (pathScope !== "filtered" || !computedPathResult?.found) return visibleEntityIds;
+    return new Set([...visibleEntityIds, ...computedPathResult.nodeIds]);
+  }, [computedPathResult, pathScope, visibleEntityIds]);
+
+  const pathDisplayRelationshipIds = useMemo(() => {
+    if (pathScope !== "filtered" || !computedPathResult?.found) return visibleRelationshipIds;
+    return new Set([...visibleRelationshipIds, ...computedPathResult.edgeIds]);
+  }, [computedPathResult, pathScope, visibleRelationshipIds]);
+
+  const visibleNodeIdsForStorage = useMemo(() => Array.from(pathDisplayEntityIds).sort(), [pathDisplayEntityIds]);
 
   const layoutStorageKey = useMemo(
     () => buildLayoutStorageKey(layoutName, visibleNodeIdsForStorage, selected?.id ?? null, focusDepth),
@@ -455,6 +679,10 @@ export default function GraphExplorer() {
       );
     }).length;
   }, [searchQuery, visibleEntityIds]);
+
+  const pathStart = pathDraft.startId ? entityMap.get(pathDraft.startId) ?? null : null;
+  const pathEnd = pathDraft.endId ? entityMap.get(pathDraft.endId) ?? null : null;
+  const pathStatus = getPathStatus(scopedPathDraft, computedPathResult, entityMap, pathEligibleEntityIds, pathScope);
 
   useEffect(() => {
     if (!containerRef.current || cyRef.current) return;
@@ -521,7 +749,7 @@ export default function GraphExplorer() {
             "text-outline-color": "#080810",
             "text-opacity": 0,
             "overlay-opacity": 0,
-            "transition-property": "line-opacity, width, text-opacity",
+            "transition-property": "line-opacity, width, text-opacity, opacity, line-color, target-arrow-color",
             "transition-duration": 200,
           } as never,
         },
@@ -604,27 +832,70 @@ export default function GraphExplorer() {
         {
           selector: ".path-node",
           style: {
-            "border-color": "#f8d26a",
+            "border-color": "#f6c451",
             "border-width": 4,
             "background-opacity": 1,
-            "shadow-opacity": 0.42,
+            "shadow-opacity": 0.46,
+            "shadow-blur": 22,
             "z-index": 12,
+          } as never,
+        },
+        {
+          selector: ".path-start",
+          style: {
+            "border-color": "#6ee7b7",
+            "border-width": 5,
+            "shadow-color": "#6ee7b7",
+            "shadow-opacity": 0.5,
+            "z-index": 14,
+          } as never,
+        },
+        {
+          selector: ".path-end",
+          style: {
+            "border-color": "#fda4af",
+            "border-width": 5,
+            "shadow-color": "#fda4af",
+            "shadow-opacity": 0.5,
+            "z-index": 14,
           } as never,
         },
         {
           selector: ".path-edge",
           style: {
-            width: 3.2,
-            "line-opacity": 0.95,
+            width: 4.4,
+            "line-color": "#f6c451",
+            "target-arrow-color": "#f6c451",
+            "line-opacity": 0.98,
             "text-opacity": 1,
-            color: "#e7d3a2",
-            "z-index": 11,
+            color: "#f6e6b8",
+            "font-size": "9px",
+            "text-background-color": "#120f08",
+            "text-background-opacity": 0.8,
+            "text-background-padding": "2px",
+            "text-border-opacity": 0,
+            "z-index": 13,
+          } as never,
+        },
+        {
+          selector: ".path-ghost-edge",
+          style: {
+            opacity: 0.22,
+            "line-opacity": 0.22,
+            width: 1.6,
+            "target-arrow-color": "#666",
+          } as never,
+        },
+        {
+          selector: ".path-active-label",
+          style: {
+            "text-opacity": 1,
           } as never,
         },
         {
           selector: ".path-dim",
           style: {
-            opacity: 0.08,
+            opacity: 0.06,
           } as never,
         },
       ],
@@ -688,13 +959,28 @@ export default function GraphExplorer() {
     cy.on("tap", "node", (evt: EventObject) => {
       const entity = entityMap.get(evt.target.id());
       if (!entity) return;
+
       setSelected(entity);
-      setPathDraft((current) => {
-        if (current.startId && current.startId !== entity.id) {
-          return { startId: current.startId, endId: entity.id };
+      setPathPickMode((currentPickMode) => {
+        if (currentPickMode === "start") {
+          setPathDraft((current) => ({
+            startId: entity.id,
+            endId: current.endId === entity.id ? null : current.endId,
+          }));
+          return "end";
         }
-        return current;
+
+        if (currentPickMode === "end") {
+          setPathDraft((current) => ({
+            startId: current.startId,
+            endId: current.startId === entity.id ? null : entity.id,
+          }));
+          return null;
+        }
+
+        return currentPickMode;
       });
+
       tooltip?.classList.remove("visible");
       applySelection(cy, entity.id);
     });
@@ -703,6 +989,7 @@ export default function GraphExplorer() {
       if (evt.target === cy) {
         setSelected(null);
         setFocusDepth(null);
+        setPathPickMode(null);
         clearSelection(cy);
       }
     });
@@ -732,10 +1019,10 @@ export default function GraphExplorer() {
 
     cy.batch(() => {
       cy.nodes().forEach((node) => {
-        node.style("display", visibleEntityIds.has(node.id()) ? "element" : "none");
+        node.style("display", pathDisplayEntityIds.has(node.id()) ? "element" : "none");
       });
       cy.edges().forEach((edge) => {
-        edge.style("display", visibleRelationshipIds.has(edge.id()) ? "element" : "none");
+        edge.style("display", pathDisplayRelationshipIds.has(edge.id()) ? "element" : "none");
       });
     });
 
@@ -752,12 +1039,15 @@ export default function GraphExplorer() {
       });
     }
 
-    if (selected && visibleEntityIds.has(selected.id)) {
-      applySelection(cy, selected.id);
-    } else {
-      clearSelection(cy);
+    const hasActivePath = computedPathResult?.found && scopedPathDraft.startId && scopedPathDraft.endId;
+    if (!hasActivePath) {
+      if (selected && visibleEntityIds.has(selected.id)) {
+        applySelection(cy, selected.id);
+      } else {
+        clearSelection(cy);
+      }
     }
-  }, [layoutName, layoutStorageKey, selected, visibleEntityIds, visibleRelationshipIds]);
+  }, [computedPathResult, layoutName, layoutStorageKey, pathDisplayEntityIds, pathDisplayRelationshipIds, scopedPathDraft, selected, visibleEntityIds]);
 
   useEffect(() => {
     const cy = cyRef.current;
@@ -800,14 +1090,57 @@ export default function GraphExplorer() {
   }, [activeLens, activeTypes, searchQuery]);
 
   useEffect(() => {
-    syncGraphUrlState({
+    const state: import("./graphExplorerState").GraphUrlState = {
       focusId: selected?.id ?? null,
       depth: focusDepth,
       lens: activeLens,
       types: Array.from(activeTypes).sort(),
       search: searchQuery,
-    });
-  }, [activeLens, activeTypes, focusDepth, searchQuery, selected]);
+      pathStartId: pathDraft.startId,
+      pathEndId: pathDraft.endId,
+      pathScope,
+    };
+
+    const key = [
+      state.focusId ?? "",
+      state.depth ?? "",
+      state.lens,
+      state.types.join(","),
+      state.pathStartId ?? "",
+      state.pathEndId ?? "",
+      state.pathScope,
+    ].join("|");
+
+    const shouldPush = !isRestoringFromPopstate.current && prevUrlStateKeyRef.current !== "" && key !== prevUrlStateKeyRef.current;
+    prevUrlStateKeyRef.current = key;
+    isRestoringFromPopstate.current = false;
+
+    syncGraphUrlState(state, shouldPush);
+  }, [activeLens, activeTypes, focusDepth, pathDraft, pathScope, searchQuery, selected]);
+
+  useEffect(() => {
+    const handlePopstate = () => {
+      const restored = parseGraphUrlState();
+      isRestoringFromPopstate.current = true;
+
+      setActiveLens(restored.lens);
+      setActiveTypes(new Set(restored.types));
+      setSearchQuery(restored.search);
+      setFocusDepth(restored.depth);
+      setPathDraft({ startId: restored.pathStartId, endId: restored.pathEndId });
+      setPathScope(restored.pathScope);
+
+      if (restored.focusId) {
+        const entity = entityMap.get(restored.focusId) ?? null;
+        setSelected(entity);
+      } else {
+        setSelected(null);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopstate);
+    return () => window.removeEventListener("popstate", handlePopstate);
+  }, [entityMap]);
 
   useEffect(() => {
     const cy = cyRef.current;
@@ -816,31 +1149,24 @@ export default function GraphExplorer() {
     const node = cy.getElementById(selected.id);
     if (!node.nonempty() || node.style("display") === "none") return;
 
-    applySelection(cy, selected.id);
+    const hasActivePath = computedPathResult?.found && scopedPathDraft.startId && scopedPathDraft.endId;
+    if (!hasActivePath) {
+      applySelection(cy, selected.id);
+    }
 
     cy.animate(
       { center: { eles: node }, zoom: Math.max(cy.zoom(), focusDepth ? 1.5 : 1.2) } as never,
       { duration: 350 }
     );
-  }, [focusDepth, selected, visibleEntityIds]);
-
-  const visiblePathDraft = useMemo<PathDraft>(() => {
-    if (!pathDraft.startId || !visibleEntityIds.has(pathDraft.startId)) {
-      return { startId: null, endId: null };
-    }
-
-    if (pathDraft.endId && !visibleEntityIds.has(pathDraft.endId)) {
-      return { startId: pathDraft.startId, endId: null };
-    }
-
-    return pathDraft;
-  }, [pathDraft, visibleEntityIds]);
+  }, [computedPathResult, focusDepth, scopedPathDraft, selected, visibleEntityIds]);
 
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
-    applyPathHighlight(cy, visiblePathDraft);
-  }, [visiblePathDraft, visibleEntityIds, visibleRelationshipIds]);
+
+    const nextResult = applyPathHighlight(cy, scopedPathDraft, computedPathResult);
+    setPathResult(nextResult);
+  }, [computedPathResult, scopedPathDraft, pathDisplayEntityIds, pathDisplayRelationshipIds]);
 
   const fitGraph = useCallback(() => {
     const cy = cyRef.current;
@@ -871,18 +1197,54 @@ export default function GraphExplorer() {
 
   const startPathFromSelected = useCallback(() => {
     if (!selected) return;
-    setPathDraft({ startId: selected.id, endId: null });
+    setPathPickMode(null);
+    setPathDraft((current) => ({ startId: selected.id, endId: current.endId === selected.id ? null : current.endId }));
   }, [selected]);
 
+  const setPathStart = useCallback((id: string | null) => {
+    setPathPickMode(null);
+    setPathDraft((current) => ({
+      startId: id,
+      endId: id && current.endId === id ? null : current.endId,
+    }));
+  }, []);
+
+  const setPathEnd = useCallback((id: string | null) => {
+    setPathPickMode(null);
+    setPathDraft((current) => ({
+      startId: current.startId,
+      endId: id === current.startId ? null : id,
+    }));
+  }, []);
+
+  const swapPathDirection = useCallback(() => {
+    setPathDraft((current) => ({ startId: current.endId, endId: current.startId }));
+  }, []);
+
   const clearPathDraft = useCallback(() => {
+    setPathPickMode(null);
     setPathDraft({ startId: null, endId: null });
   }, []);
 
-  const pathStart = visiblePathDraft.startId ? entityMap.get(visiblePathDraft.startId) ?? null : null;
-  const pathEnd = visiblePathDraft.endId ? entityMap.get(visiblePathDraft.endId) ?? null : null;
-  const pathReady = Boolean(
-    visiblePathDraft.startId && visiblePathDraft.endId && visiblePathDraft.startId !== visiblePathDraft.endId
-  );
+  const fitPath = useCallback(() => {
+    const cy = cyRef.current;
+    if (!cy || !pathResult?.found) return;
+
+    const pathElements = cy.elements().filter((ele) => {
+      return (
+        (ele.isNode() && pathResult.nodeIds.includes(ele.id())) ||
+        (ele.isEdge() && pathResult.edgeIds.includes(ele.id()))
+      );
+    });
+
+    if (!pathElements.length) return;
+
+    cy.animate({ fit: { eles: pathElements, padding: 100 } } as never, { duration: 450 });
+  }, [pathResult]);
+
+  const pathReady = Boolean(pathResult?.found && scopedPathDraft.startId && scopedPathDraft.endId && scopedPathDraft.startId !== scopedPathDraft.endId);
+  const pathModeActive = pathPickMode !== null;
+  const pathModeLabel = pathPickMode === "start" ? "Pick a start node" : pathPickMode === "end" ? "Pick an end node" : "Path mode off";
 
   const lenses: { value: Lens; label: string; icon: string }[] = [
     { value: "all", label: "All Layers", icon: LENS_ICONS.all },
@@ -896,22 +1258,9 @@ export default function GraphExplorer() {
   const hiddenSelected = selected && !selectedVisible ? selected : null;
   const visibleSelected = selectedVisible ? selected : null;
 
-  return (
-    <div className="flex h-screen w-screen bg-[#060609] text-gray-200">
-      <div ref={tooltipRef} className="cy-tooltip" />
-
-      <div className="w-60 border-r border-gray-800/60 flex flex-col shrink-0 bg-[#08080f]/80 backdrop-blur">
-        <div className="p-4 pb-3 border-b border-gray-800/40">
-          <h1 className="text-lg font-bold tracking-tight">
-            <span className="text-amber-400">World</span>{" "}
-            <span className="text-gray-200">Religion</span>{" "}
-            <span className="text-amber-600/80">Web</span>
-          </h1>
-          <p className="text-[10px] text-gray-600 mt-0.5 tracking-wide uppercase">
-            Comparative Knowledge Graph
-          </p>
-        </div>
-
+  // Sidebar content (shared between desktop sidebar and mobile drawer)
+  const sidebarContent = (
+      <>
         <div className="p-3 flex flex-col gap-3 overflow-y-auto flex-1">
           <div className="relative">
             <input
@@ -931,16 +1280,205 @@ export default function GraphExplorer() {
             )}
           </div>
 
+          <div className="rounded-xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent p-3 text-[11px] space-y-3">
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-amber-200 font-medium tracking-wide uppercase text-[10px]">Path finder</p>
+                <button
+                  onClick={() => setPathPickMode((current) => (current ? null : pathDraft.startId ? "end" : "start"))}
+                  className={`rounded-md border px-2 py-1 text-[10px] uppercase tracking-wider transition ${
+                    pathModeActive
+                      ? "border-amber-400/40 bg-amber-500/12 text-amber-100"
+                      : "border-gray-700/70 text-gray-300 hover:bg-gray-800/50"
+                  }`}
+                >
+                  {pathModeActive ? "Exit path mode" : "Enter path mode"}
+                </button>
+              </div>
+              <p className="text-gray-400 mt-1 leading-relaxed">
+                Choose endpoints explicitly, then highlight the shortest route in the current scope. The pair stays shareable in the URL.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-gray-800/70 bg-gray-950/40 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-gray-500">Interaction mode</p>
+              <p className="mt-1 text-sm text-gray-200">{pathModeLabel}</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                {pathPickMode === "start"
+                  ? "Click any in-scope node to set the starting point."
+                  : pathPickMode === "end"
+                    ? "Click any in-scope node to finish the pair."
+                    : "Node clicks stay in normal explore mode until you arm the picker."}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-gray-500">Path scope</p>
+                <div className="mt-1 grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setPathScope("visible")}
+                    className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                      pathScope === "visible"
+                        ? "border-amber-400/35 bg-amber-500/10 text-amber-100"
+                        : "border-gray-800 text-gray-400 hover:bg-gray-800/40"
+                    }`}
+                  >
+                    Visible graph
+                    <span className="mt-1 block text-[10px] text-gray-500">Respect focus mode and the current viewport subset.</span>
+                  </button>
+                  <button
+                    onClick={() => setPathScope("filtered")}
+                    className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                      pathScope === "filtered"
+                        ? "border-sky-400/35 bg-sky-500/10 text-sky-100"
+                        : "border-gray-800 text-gray-400 hover:bg-gray-800/40"
+                    }`}
+                  >
+                    Filtered graph
+                    <span className="mt-1 block text-[10px] text-gray-500">Ignore focus window, but still respect lens and type filters.</span>
+                  </button>
+                </div>
+              </div>
+
+              <label className="block space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] uppercase tracking-widest text-gray-500">Start node</span>
+                  <button
+                    onClick={() => setPathPickMode((current) => (current === "start" ? null : "start"))}
+                    className={`rounded-md border px-2 py-1 text-[10px] uppercase tracking-wider transition ${
+                      pathPickMode === "start"
+                        ? "border-emerald-400/40 bg-emerald-500/12 text-emerald-200"
+                        : "border-gray-700/70 text-gray-400 hover:bg-gray-800/50"
+                    }`}
+                  >
+                    {pathPickMode === "start" ? "Click a node…" : "Pick on graph"}
+                  </button>
+                </div>
+                <select
+                  value={pathDraft.startId ?? ""}
+                  onChange={(event) => setPathStart(event.target.value || null)}
+                  className="w-full rounded-lg border border-gray-800 bg-gray-950/70 px-3 py-2 text-sm text-gray-200 focus:border-emerald-400/50 focus:outline-none"
+                >
+                  <option value="">Choose a {pathScope === "filtered" ? "filtered" : "visible"} start…</option>
+                  {pathSelectableEntities.map((entity) => (
+                    <option key={`path-start-${entity.id}`} value={entity.id}>
+                      {entity.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setPathPickMode(null);
+                    swapPathDirection();
+                  }}
+                  disabled={!pathDraft.startId && !pathDraft.endId}
+                  className="rounded-md border border-gray-700/70 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-gray-300 transition hover:bg-gray-800/50 disabled:cursor-not-allowed disabled:text-gray-600"
+                >
+                  Swap
+                </button>
+                <p className="text-[10px] text-gray-600">
+                  {pathScope === "visible"
+                    ? "Use only the currently focused graph when tracing a route."
+                    : "Search across the full filtered graph, even when focus mode is narrowing the view."}
+                </p>
+              </div>
+
+              <label className="block space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] uppercase tracking-widest text-gray-500">End node</span>
+                  <button
+                    onClick={() => setPathPickMode((current) => (current === "end" ? null : "end"))}
+                    className={`rounded-md border px-2 py-1 text-[10px] uppercase tracking-wider transition ${
+                      pathPickMode === "end"
+                        ? "border-rose-400/40 bg-rose-500/12 text-rose-200"
+                        : "border-gray-700/70 text-gray-400 hover:bg-gray-800/50"
+                    }`}
+                  >
+                    {pathPickMode === "end" ? "Click a node…" : "Pick on graph"}
+                  </button>
+                </div>
+                <select
+                  value={pathDraft.endId ?? ""}
+                  onChange={(event) => setPathEnd(event.target.value || null)}
+                  className="w-full rounded-lg border border-gray-800 bg-gray-950/70 px-3 py-2 text-sm text-gray-200 focus:border-rose-400/50 focus:outline-none"
+                >
+                  <option value="">Choose a {pathScope === "filtered" ? "filtered" : "visible"} end…</option>
+                  {pathSelectableEntities.map((entity) => (
+                    <option key={`path-end-${entity.id}`} value={entity.id}>
+                      {entity.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div
+              className={`rounded-lg border px-3 py-2 space-y-1 ${
+                pathStatus.tone === "success"
+                  ? "border-emerald-400/20 bg-emerald-500/8"
+                  : pathStatus.tone === "warning"
+                    ? "border-amber-400/20 bg-amber-500/8"
+                    : "border-gray-800/70 bg-gray-950/40"
+              }`}
+            >
+              <p className="text-sm text-gray-200">{pathStatus.title}</p>
+              <p className="text-[11px] leading-relaxed text-gray-400">{pathStatus.detail}</p>
+              {pathReady && pathStart && pathEnd && (
+                <div className="flex items-center gap-2 pt-1 text-[10px] uppercase tracking-wider text-gray-500">
+                  <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-300" /> start</span>
+                  <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-300" /> path</span>
+                  <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-300" /> end</span>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={fitPath}
+                disabled={!pathReady}
+                className="rounded-lg border border-amber-400/30 px-3 py-2 text-xs text-amber-200 transition hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:border-gray-800 disabled:text-gray-600"
+              >
+                Fit path
+              </button>
+              <button
+                onClick={clearPathDraft}
+                className="rounded-lg border border-gray-700/70 px-3 py-2 text-xs text-gray-300 transition hover:bg-gray-800/50"
+              >
+                Clear path
+              </button>
+            </div>
+
+            {visibleSelected && (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={startPathFromSelected}
+                  className="rounded-lg border border-emerald-400/25 px-3 py-2 text-xs text-emerald-200 transition hover:bg-emerald-500/10"
+                >
+                  Set start from selected
+                </button>
+                <button
+                  onClick={() => {
+                    setPathPickMode(null);
+                    setPathEnd(visibleSelected.id);
+                  }}
+                  className="rounded-lg border border-rose-400/25 px-3 py-2 text-xs text-rose-200 transition hover:bg-rose-500/10"
+                >
+                  Set end from selected
+                </button>
+              </div>
+            )}
+          </div>
+
           {(visibleSelected || hiddenSelected) && (
             <div className="rounded-lg border border-sky-500/20 bg-sky-500/8 p-2.5 text-[11px] space-y-2">
               <div>
                 <p className="text-sky-200 font-medium">Focused node</p>
                 <p className="text-gray-400 mt-0.5">{selected?.name}</p>
-                {hiddenSelected && (
-                  <p className="text-amber-300/90 mt-1">
-                    Hidden by current lens or type filters.
-                  </p>
-                )}
+                {hiddenSelected && <p className="text-amber-300/90 mt-1">Hidden by current lens or type filters.</p>}
               </div>
 
               <div className="flex flex-col gap-1">
@@ -978,47 +1516,8 @@ export default function GraphExplorer() {
             </div>
           )}
 
-          {(pathStart || pathEnd) && (
-            <div className="rounded-lg border border-amber-500/20 bg-amber-500/8 p-2.5 text-[11px] space-y-2">
-              <div>
-                <p className="text-amber-200 font-medium">Path explorer preview</p>
-                <p className="text-gray-400 mt-0.5">
-                  {pathStart ? `Start: ${pathStart.name}` : "Pick a start node."}
-                </p>
-                <p className="text-gray-500 mt-0.5">
-                  {pathEnd
-                    ? `End: ${pathEnd.name}`
-                    : pathStart
-                      ? "Click another visible node to trace the shortest path."
-                      : "Select a node, then mark it as a path start."}
-                </p>
-              </div>
-              <div className="flex flex-col gap-1">
-                {visibleSelected && (
-                  <button
-                    onClick={startPathFromSelected}
-                    className="text-left px-2.5 py-1.5 rounded-md border border-amber-400/30 text-amber-200 hover:bg-amber-500/10 transition-all"
-                  >
-                    {pathDraft.startId === visibleSelected.id ? "Reset path start to this node" : "Mark as path start"}
-                  </button>
-                )}
-                {pathReady && (
-                  <p className="px-2.5 py-1 text-emerald-300/90">Shortest visible path highlighted in gold.</p>
-                )}
-                <button
-                  onClick={clearPathDraft}
-                  className="text-left px-2.5 py-1.5 rounded-md border border-gray-700/70 text-gray-300 hover:bg-gray-800/50 transition-all"
-                >
-                  Clear path highlight
-                </button>
-              </div>
-            </div>
-          )}
-
           <div>
-            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-1.5 px-1">
-              Lens
-            </h3>
+            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-1.5 px-1">Lens</h3>
             <div className="flex flex-col gap-0.5">
               {lenses.map((lens) => (
                 <button
@@ -1038,9 +1537,7 @@ export default function GraphExplorer() {
           </div>
 
           <div>
-            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-1.5 px-1">
-              Layout
-            </h3>
+            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-1.5 px-1">Layout</h3>
             <div className="grid grid-cols-1 gap-0.5">
               {LAYOUT_OPTIONS.map((layout) => (
                 <button
@@ -1059,9 +1556,7 @@ export default function GraphExplorer() {
           </div>
 
           <div>
-            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-1.5 px-1">
-              Node Types
-            </h3>
+            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-1.5 px-1">Node Types</h3>
             <div className="flex flex-col gap-0.5">
               {allTypes.map((type) => {
                 const active = activeTypes.size === 0 || activeTypes.has(type);
@@ -1070,9 +1565,7 @@ export default function GraphExplorer() {
                     key={type}
                     onClick={() => toggleType(type)}
                     className={`text-left text-xs px-3 py-1.5 rounded-lg flex items-center gap-2 transition-all duration-150 ${
-                      active
-                        ? "text-gray-300 hover:bg-gray-800/50"
-                        : "text-gray-700 hover:bg-gray-800/30"
+                      active ? "text-gray-300 hover:bg-gray-800/50" : "text-gray-700 hover:bg-gray-800/30"
                     }`}
                   >
                     <span
@@ -1098,9 +1591,7 @@ export default function GraphExplorer() {
           </div>
 
           <div>
-            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-1.5 px-1">
-              Edge Confidence
-            </h3>
+            <h3 className="text-[10px] uppercase tracking-widest text-gray-600 mb-1.5 px-1">Edge Confidence</h3>
             <div className="rounded-lg border border-gray-800/50 bg-gray-950/40 p-2 text-[11px] text-gray-500 space-y-1">
               <p><span className="text-gray-300">High</span> — thicker relationship strokes</p>
               <p><span className="text-gray-300">Medium</span> — balanced stroke</p>
@@ -1115,21 +1606,189 @@ export default function GraphExplorer() {
             {searchActive ? `${visibleCount} matches / ` : `${visibleCount} visible / `}
             {entities.length} entities &middot; {relationships.length} edges
           </p>
-          <p className="text-[10px] text-gray-700 mt-0.5">
-            v0.4 groundwork &middot; URL state &middot; persisted layouts
+          <p className="text-[10px] text-gray-700 mt-0.5">v0.4 path-finding UX &middot; URL state &middot; persisted layouts</p>
+        </div>
+      </>
+    );
+
+  const closeEntityPanel = useCallback(() => {
+    setSelected(null);
+    setFocusDepth(null);
+    setSheetExpanded(false);
+    const cy = cyRef.current;
+    if (cy) clearSelection(cy);
+  }, []);
+
+  const navigateEntityPanel = useCallback((id: string) => {
+    const entity = entityMap.get(id);
+    const cy = cyRef.current;
+    const node = cy?.getElementById(id);
+    if (!entity || !cy || !node?.nonempty() || node.style("display") === "none") return;
+
+    setSelected(entity);
+    setPathPickMode((currentPickMode) => {
+      if (currentPickMode === "start") {
+        setPathDraft((current) => ({
+          startId: id,
+          endId: current.endId === id ? null : current.endId,
+        }));
+        return "end";
+      }
+      if (currentPickMode === "end") {
+        setPathDraft((current) => ({
+          startId: current.startId,
+          endId: current.startId === id ? null : id,
+        }));
+        return null;
+      }
+      return currentPickMode;
+    });
+    applySelection(cy, id);
+    cy.animate({ center: { eles: node }, zoom: Math.max(cy.zoom(), 1.8) } as never, { duration: 400 });
+  }, [entityMap]);
+
+  const visibleSelectedRelationships = useMemo(
+    () => (visibleSelected
+      ? relationships.filter((r) => r.source === visibleSelected.id || r.target === visibleSelected.id)
+      : []),
+    [visibleSelected]
+  );
+
+  const activeFilterCount = (activeLens !== "all" ? 1 : 0) + activeTypes.size + (searchActive ? 1 : 0);
+
+  /* ───────── MOBILE LAYOUT ───────── */
+  if (isMobile) {
+    return (
+      <div className="flex flex-col h-[100dvh] w-screen bg-[#060609] text-gray-200">
+        <div ref={tooltipRef} className="cy-tooltip" />
+
+        {/* Mobile top bar — respects iPhone safe area */}
+        <div className="flex items-center justify-between px-4 pb-2.5 border-b border-gray-800/40 bg-[#08080f]/90 backdrop-blur shrink-0 z-30" style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top, 0.75rem))" }}>
+          <button
+            onClick={() => setDrawerOpen(true)}
+            className="flex items-center gap-2 text-gray-400 hover:text-amber-300 transition-colors p-2 -ml-2 min-h-[44px] min-w-[44px]"
+          >
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+              <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            {activeFilterCount > 0 && (
+              <span className="bg-amber-500/20 text-amber-300 text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500/30">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+
+          <h1 className="text-sm font-bold tracking-tight">
+            <span className="text-amber-400">World</span>{" "}
+            <span className="text-gray-200">Religion</span>{" "}
+            <span className="text-amber-600/80">Web</span>
+          </h1>
+
+          <button
+            onClick={fitGraph}
+            className="text-gray-500 hover:text-amber-300 p-2 -mr-2 min-h-[44px] min-w-[44px] flex items-center justify-center transition-colors"
+            title="Fit view"
+          >
+            <svg width="20" height="20" viewBox="0 0 18 18" fill="none">
+              <path d="M2 6V2h4M12 2h4v4M16 12v4h-4M6 16H2v-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Graph canvas (full screen) */}
+        <div className="flex-1 relative overflow-hidden">
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: "radial-gradient(ellipse at 50% 50%, rgba(230, 168, 23, 0.03) 0%, rgba(6, 6, 9, 0) 70%)",
+            }}
+          />
+          <div ref={containerRef} className="w-full h-full" />
+
+          {/* Mobile stats pill */}
+          <div className="absolute top-3 left-3 bg-gray-900/70 backdrop-blur-sm border border-gray-800/30 rounded-full px-3 py-1 text-[10px] text-gray-500">
+            {visibleCount} / {entities.length} entities
+          </div>
+        </div>
+
+        {/* Mobile drawer (sidebar) */}
+        {drawerOpen && (
+          <>
+            <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />
+            <div className="fixed inset-y-0 left-0 z-50 w-[85vw] max-w-[320px] bg-[#08080f] border-r border-gray-800/60 flex flex-col drawer-panel" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+              <div className="flex items-center justify-between p-3 border-b border-gray-800/40">
+                <h2 className="text-sm font-bold text-amber-400">Filters & Tools</h2>
+                <button
+                  onClick={() => setDrawerOpen(false)}
+                  className="text-gray-600 hover:text-white p-1 transition-colors"
+                >
+                  <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
+                    <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {sidebarContent}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Mobile bottom sheet (entity detail) */}
+        {visibleSelected && (
+          <>
+            <div className="bottom-sheet-backdrop" onClick={closeEntityPanel} />
+            <div className={`bottom-sheet bg-[#0a0a12] border-t border-gray-700/50 ${sheetExpanded ? "bottom-sheet-full" : ""}`} style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+              {/* Drag handle */}
+              <div
+                className="flex justify-center py-3 cursor-pointer shrink-0"
+                onClick={() => setSheetExpanded(!sheetExpanded)}
+              >
+                <div className="w-12 h-1.5 rounded-full bg-gray-500" />
+              </div>
+              <EntityPanel
+                entity={visibleSelected}
+                relationships={visibleSelectedRelationships}
+                entities={entities}
+                onClose={closeEntityPanel}
+                onNavigate={navigateEntityPanel}
+                mobile
+              />
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  /* ───────── DESKTOP LAYOUT ───────── */
+  return (
+    <div className="flex h-screen w-screen bg-[#060609] text-gray-200">
+      <div ref={tooltipRef} className="cy-tooltip" />
+
+      {/* Desktop sidebar */}
+      <div className="w-72 border-r border-gray-800/60 flex flex-col shrink-0 bg-[#08080f]/80 backdrop-blur">
+        <div className="p-4 pb-3 border-b border-gray-800/40">
+          <h1 className="text-lg font-bold tracking-tight">
+            <span className="text-amber-400">World</span>{" "}
+            <span className="text-gray-200">Religion</span>{" "}
+            <span className="text-amber-600/80">Web</span>
+          </h1>
+          <p className="text-[10px] text-gray-600 mt-0.5 tracking-wide uppercase">
+            Comparative Knowledge Graph
           </p>
         </div>
+        {sidebarContent}
       </div>
 
+      {/* Graph canvas */}
       <div className="flex-1 relative overflow-hidden">
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
-            background:
-              "radial-gradient(ellipse at 50% 50%, rgba(230, 168, 23, 0.03) 0%, rgba(6, 6, 9, 0) 70%)",
+            background: "radial-gradient(ellipse at 50% 50%, rgba(230, 168, 23, 0.03) 0%, rgba(6, 6, 9, 0) 70%)",
           }}
         />
-
         <div ref={containerRef} className="w-full h-full" />
 
         <div className="absolute top-4 right-4 flex gap-2">
@@ -1142,44 +1801,23 @@ export default function GraphExplorer() {
           </button>
         </div>
 
-        <div className="absolute bottom-4 left-4 bg-gray-900/60 backdrop-blur-sm border border-gray-800/30 rounded-lg px-3 py-2 text-[11px] space-y-0.5">
+        <div className="absolute bottom-4 left-4 bg-gray-900/60 backdrop-blur-sm border border-gray-800/30 rounded-lg px-3 py-2 text-[11px] space-y-0.5 max-w-md">
           <p className="text-gray-500">
             <span className="text-gray-400">Hover</span> to preview &middot; <span className="text-gray-400">Click</span> to explore &middot; <span className="text-gray-400">Drag</span> to rearrange
           </p>
-          <p className="text-gray-600">Scroll to zoom &middot; Edge labels appear when zoomed in</p>
+          <p className="text-gray-600">Path mode traces the shortest route between chosen endpoints within the {pathScope === "filtered" ? "filtered" : "visible"} graph.</p>
         </div>
       </div>
 
+      {/* Desktop entity panel */}
       {visibleSelected && (
         <div className="panel-enter">
           <EntityPanel
             entity={visibleSelected}
-            relationships={relationships.filter(
-              (relationship) =>
-                relationship.source === visibleSelected.id || relationship.target === visibleSelected.id
-            )}
+            relationships={visibleSelectedRelationships}
             entities={entities}
-            onClose={() => {
-              setSelected(null);
-              setFocusDepth(null);
-              if (cyRef.current) clearSelection(cyRef.current);
-            }}
-            onNavigate={(id) => {
-              const entity = entityMap.get(id);
-              const cy = cyRef.current;
-              const node = cy?.getElementById(id);
-              if (!entity || !cy || !node?.nonempty() || node.style("display") === "none") return;
-
-              setSelected(entity);
-              setPathDraft((current) => {
-                if (current.startId && current.startId !== id) {
-                  return { startId: current.startId, endId: id };
-                }
-                return current;
-              });
-              applySelection(cy, id);
-              cy.animate({ center: { eles: node }, zoom: Math.max(cy.zoom(), 1.8) } as never, { duration: 400 });
-            }}
+            onClose={closeEntityPanel}
+            onNavigate={navigateEntityPanel}
           />
         </div>
       )}

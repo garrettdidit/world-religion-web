@@ -86,6 +86,8 @@ export interface Entity {
   lens: Lens[];
   interpretations?: Record<string, string>;
   sources?: string[];
+  links?: { label: string; url: string }[];
+  citations?: string[];
 }
 
 // ── Relationship ─────────────────────────────────────────────────────

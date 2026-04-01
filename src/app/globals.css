@@ -73,7 +73,7 @@ body {
   margin: 0;
 }
 
-/* Panel slide animation */
+/* Panel slide animation (desktop) */
 .panel-enter {
   animation: slideIn 0.25s ease-out forwards;
 }
@@ -86,4 +86,59 @@ body {
     transform: translateX(0);
     opacity: 1;
   }
+}
+
+/* Mobile drawer overlay */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 40;
+  animation: fadeIn 0.2s ease-out;
+}
+.drawer-panel {
+  animation: drawerSlideIn 0.25s ease-out forwards;
+}
+@keyframes drawerSlideIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Mobile bottom sheet */
+.bottom-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 40;
+  animation: fadeIn 0.15s ease-out;
+}
+.bottom-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  max-height: 70vh;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  animation: sheetSlideUp 0.3s ease-out forwards;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.bottom-sheet-full {
+  max-height: 92vh;
+}
+@keyframes sheetSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* Hide tooltip on touch devices */
+@media (hover: none) {
+  .cy-tooltip { display: none !important; }
 }

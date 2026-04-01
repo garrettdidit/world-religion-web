@@ -15,12 +15,17 @@ export type PersistedLayoutSnapshot = {
   savedAt: number;
 };
 
+export type PathScope = "visible" | "filtered";
+
 export type GraphUrlState = {
   focusId: string | null;
   depth: FocusDepth | null;
   lens: Lens;
   types: string[];
   search: string;
+  pathStartId: string | null;
+  pathEndId: string | null;
+  pathScope: PathScope;
 };
 
 export type GraphUiState = {
@@ -61,6 +66,15 @@ function cleanSearch(value: string | null | undefined): string {
   return value?.trim() ?? "";
 }
 
+function cleanEntityId(value: string | null | undefined): string | null {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : null;
+}
+
+function normalizePathScope(value: string | null | undefined): PathScope {
+  return value === "filtered" ? "filtered" : "visible";
+}
+
 function parseHashParams(hash: string): URLSearchParams {
   const trimmed = hash.replace(/^#/, "").trim();
   if (!trimmed) return new URLSearchParams();
@@ -81,22 +95,34 @@ function readJsonStorage<T>(key: string): T | null {
 
 export function parseGraphUrlState(): GraphUrlState {
   if (typeof window === "undefined") {
-    return { focusId: null, depth: null, lens: "all", types: [], search: "" };
+    return {
+      focusId: null,
+      depth: null,
+      lens: "all",
+      types: [],
+      search: "",
+      pathStartId: null,
+      pathEndId: null,
+      pathScope: "visible",
+    };
   }
 
   const url = new URL(window.location.href);
   const hashParams = parseHashParams(window.location.hash);
 
   return {
-    focusId: url.searchParams.get("focus") || hashParams.get("focus"),
+    focusId: cleanEntityId(url.searchParams.get("focus") || hashParams.get("focus")),
     depth: parseFocusDepth(url.searchParams.get("depth")) ?? parseFocusDepth(hashParams.get("depth")),
     lens: normalizeLens(url.searchParams.get("lens")) ?? normalizeLens(hashParams.get("lens")) ?? "all",
     types: normalizeTypes(url.searchParams.get("types") || hashParams.get("types")),
     search: cleanSearch(url.searchParams.get("search") || hashParams.get("search")),
+    pathStartId: cleanEntityId(url.searchParams.get("pathStart") || hashParams.get("pathStart")),
+    pathEndId: cleanEntityId(url.searchParams.get("pathEnd") || hashParams.get("pathEnd")),
+    pathScope: normalizePathScope(url.searchParams.get("pathScope") || hashParams.get("pathScope")),
   };
 }
 
-export function syncGraphUrlState(state: GraphUrlState) {
+export function syncGraphUrlState(state: GraphUrlState, push = false) {
   if (typeof window === "undefined") return;
 
   const url = new URL(window.location.href);
@@ -139,8 +165,34 @@ export function syncGraphUrlState(state: GraphUrlState) {
     url.searchParams.delete("search");
   }
 
+  if (state.pathStartId) {
+    url.searchParams.set("pathStart", state.pathStartId);
+    hashParams.set("pathStart", state.pathStartId);
+  } else {
+    url.searchParams.delete("pathStart");
+  }
+
+  if (state.pathEndId) {
+    url.searchParams.set("pathEnd", state.pathEndId);
+    hashParams.set("pathEnd", state.pathEndId);
+  } else {
+    url.searchParams.delete("pathEnd");
+  }
+
+  if (state.pathScope !== "visible") {
+    url.searchParams.set("pathScope", state.pathScope);
+    hashParams.set("pathScope", state.pathScope);
+  } else {
+    url.searchParams.delete("pathScope");
+  }
+
   url.hash = hashParams.toString();
-  window.history.replaceState({}, "", url);
+
+  if (push) {
+    window.history.pushState({}, "", url);
+  } else {
+    window.history.replaceState({}, "", url);
+  }
 }
 
 export function readGraphUiState(): GraphUiState | null {
