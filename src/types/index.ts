@@ -36,7 +36,24 @@ export type EntityType =
 // ── Evidence & Lens ──────────────────────────────────────────────────
 export type EvidenceLevel = "primary" | "secondary" | "legendary" | "esoteric" | "disputed";
 
-export type Lens = "historical" | "devotional" | "esoteric" | "all";
+export type Lens =
+  | "historical"
+  | "devotional"
+  | "esoteric"
+  | "all"
+  // v0.2 lens additions
+  | "philosophical"
+  | "textual"
+  | "comparative"
+  | "reception_history"
+  | "institutional"
+  | "intellectual"
+  | "literary"
+  | "interpretive"
+  | "mythic"
+  | "theological"
+  | "political"
+  | "eschatological";
 
 // ── Governance & Status ──────────────────────────────────────────────
 export type VisibilityLevel = "public" | "sensitive" | "restricted";
